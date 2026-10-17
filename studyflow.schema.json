@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "studyflow.schema.json",
+  "title": "StudyFlow data file (data.json)",
+  "description": "Everything the user creates. Written by the app; schemaVersion 1.",
+  "type": "object",
+  "required": ["schemaVersion", "subjects", "images"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "subjects": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Subject" }
+    },
+    "images": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Image" }
+    }
+  },
+
+  "$defs": {
+    "id": {
+      "description": "Random UUID (uuid4) as 32 lowercase hex characters.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "timestamp": {
+      "description": "ISO 8601 date-time in UTC, e.g. 2026-11-02T18:30:00+00:00.",
+      "type": "string",
+      "format": "date-time"
+    },
+
+    "Subject": {
+      "type": "object",
+      "required": ["id", "name", "notes", "createdAt", "points"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1 },
+        "notes": { "type": "string" },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "points": {
+          "description": "Study points of this subject (one subject has many points).",
+          "type": "array",
+          "items": { "$ref": "#/$defs/StudyPoint" }
+        }
+      }
+    },
+
+    "StudyPoint": {
+      "type": "object",
+      "required": ["id", "title", "notes", "done", "deadline", "effortHours", "createdAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "type": "string", "minLength": 1 },
+        "notes": { "type": "string" },
+        "done": { "type": "boolean" },
+        "deadline": {
+          "description": "Optional. null means no deadline.",
+          "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }]
+        },
+        "effortHours": {
+          "description": "Optional estimated study effort. null means not estimated.",
+          "oneOf": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "null" }]
+        },
+        "createdAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+
+    "Image": {
+      "type": "object",
+      "required": ["id", "file", "originalName", "subjectId", "pointId", "tags", "addedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "file": {
+          "description": "Path of the picture relative to the data folder. The picture itself is not stored in the JSON.",
+          "type": "string",
+          "pattern": "^images/[0-9a-f]{32}\\.(png|jpg|jpeg|webp|bmp|gif)$"
+        },
+        "originalName": { "type": "string" },
+        "subjectId": {
+          "description": "FK to Subject.id (required).",
+          "$ref": "#/$defs/id"
+        },
+        "pointId": {
+          "description": "FK to StudyPoint.id inside that subject. null means the image belongs to the subject as a whole.",
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        },
+        "tags": {
+          "description": "Lower-case, trimmed, unique, sorted. Many-to-many with images (a tag is just a string).",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "addedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    }
+  }
+}
