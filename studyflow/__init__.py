@@ -5,6 +5,7 @@ from .models import (
     ImageRecord,
     NewerSchemaError,
     NotFoundError,
+    SearchHit,
     StudyPoint,
     Subject,
 )
@@ -13,7 +14,7 @@ from .storage import Storage, StorageError, default_data_dir
 from .users import UserInfo, UserManager
 
 __all__ = [
-    "Database", "DataFormatError", "ImageRecord", "NewerSchemaError", "NotFoundError",
+    "Database", "DataFormatError", "ImageRecord", "NewerSchemaError", "NotFoundError", "SearchHit",
     "StudyPoint", "Subject", "Storage", "StorageError", "default_data_dir", "UserInfo", "UserManager",
     "PlanSettings", "PointPriority", "Status", "format_remaining", "next_up", "rank_points",
 ]

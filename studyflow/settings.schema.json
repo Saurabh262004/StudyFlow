@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "studyflow-settings.schema.json",
+  "title": "StudyFlow per-user settings (settings.json)",
+  "description": "How the priority view plans for one user. Lives next to that user's data.json.",
+  "type": "object",
+  "required": ["schemaVersion", "hoursPerDay", "defaultEffortHours", "soonDays"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "hoursPerDay": {
+      "description": "Study hours the user can realistically give per day.",
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 24
+    },
+    "defaultEffortHours": {
+      "description": "Effort assumed for study points that have no estimate.",
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "soonDays": {
+      "description": "A point counts as 'soon' when it has to be started within this many days.",
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}

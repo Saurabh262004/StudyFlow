@@ -2,17 +2,18 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "studyflow.schema.json",
   "title": "StudyFlow data file (data.json)",
-  "description": "Everything the user creates. Written by the app; schemaVersion 1.",
+  "description": "Everything one user creates. Written by the app; schemaVersion 2. Images are standalone records that subjects and study points list by id (many-to-many).",
   "type": "object",
   "required": ["schemaVersion", "subjects", "images"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "subjects": {
       "type": "array",
       "items": { "$ref": "#/$defs/Subject" }
     },
     "images": {
+      "description": "All pictures of this user. A picture can be listed by many subjects and study points.",
       "type": "array",
       "items": { "$ref": "#/$defs/Image" }
     }
@@ -30,28 +31,29 @@
       "format": "date-time",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?\\+00:00$"
     },
-
     "nullableTimestamp": {
       "description": "A timestamp or null. Written as a type list rather than an either-or schema so error messages stay readable.",
       "type": ["string", "null"],
       "format": "date-time",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?\\+00:00$"
     },
-    "nullableId": {
-      "description": "An id or null.",
-      "type": ["string", "null"],
-      "pattern": "^[0-9a-f]{32}$"
+    "imageIds": {
+      "description": "FKs to Image.id: the images shown here, in the order they were added. The same image may be listed by many subjects and study points. Every id must exist in the top-level images list (checked by the app; JSON Schema cannot check it).",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/id" }
     },
 
     "Subject": {
       "type": "object",
-      "required": ["id", "name", "notes", "createdAt", "points"],
+      "required": ["id", "name", "notes", "createdAt", "imageIds", "points"],
       "additionalProperties": false,
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "name": { "type": "string", "minLength": 1 },
         "notes": { "type": "string" },
         "createdAt": { "$ref": "#/$defs/timestamp" },
+        "imageIds": { "$ref": "#/$defs/imageIds" },
         "points": {
           "description": "Study points of this subject (one subject has many points).",
           "type": "array",
@@ -62,7 +64,7 @@
 
     "StudyPoint": {
       "type": "object",
-      "required": ["id", "title", "notes", "done", "deadline", "effortHours", "createdAt"],
+      "required": ["id", "title", "notes", "done", "deadline", "effortHours", "imageIds", "createdAt"],
       "additionalProperties": false,
       "properties": {
         "id": { "$ref": "#/$defs/id" },
@@ -78,13 +80,15 @@
           "type": ["number", "null"],
           "exclusiveMinimum": 0
         },
+        "imageIds": { "$ref": "#/$defs/imageIds" },
         "createdAt": { "$ref": "#/$defs/timestamp" }
       }
     },
 
     "Image": {
+      "description": "A standalone picture record. It has no owner; subjects and study points list it by id.",
       "type": "object",
-      "required": ["id", "file", "originalName", "subjectId", "pointId", "tags", "addedAt"],
+      "required": ["id", "file", "originalName", "tags", "addedAt"],
       "additionalProperties": false,
       "properties": {
         "id": { "$ref": "#/$defs/id" },
@@ -94,14 +98,6 @@
           "pattern": "^images/[0-9a-f]{32}\\.(png|jpg|jpeg|webp|bmp|gif)$"
         },
         "originalName": { "type": "string" },
-        "subjectId": {
-          "description": "FK to Subject.id (required).",
-          "$ref": "#/$defs/id"
-        },
-        "pointId": {
-          "description": "FK to StudyPoint.id inside that subject. null means the image belongs to the subject as a whole.",
-          "$ref": "#/$defs/nullableId"
-        },
         "tags": {
           "description": "Lower-case, trimmed, unique, sorted. Many-to-many with images (a tag is just a string).",
           "type": "array",

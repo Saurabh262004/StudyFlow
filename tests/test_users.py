@@ -138,3 +138,16 @@ def test_user_json_content(mgr):
     u = mgr.create_user("Saurabh")
     raw = json.loads((mgr.users_dir / u.id / "user.json").read_text("utf-8"))
     assert raw["name"] == "Saurabh" and raw["createdAt"].endswith("+00:00")
+
+
+def test_storage_for_has_no_side_effects_but_open_user_remembers(mgr):
+    a, b = mgr.create_user("A"), mgr.create_user("B")
+    mgr.open_user(a.id)
+    mgr.storage_for(b.id)
+    assert mgr.last_user().id == a.id  # peeking at B did not change the last user
+    mgr.remember_user(b.id)
+    assert mgr.last_user().id == b.id
+    with pytest.raises(NotFoundError):
+        mgr.remember_user("0" * 32)
+    with pytest.raises(NotFoundError):
+        mgr.storage_for("../x")

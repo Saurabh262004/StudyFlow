@@ -181,7 +181,7 @@ def test_delete_single_image(store, photo):
 def test_image_path_cannot_escape_data_dir(store):
     from studyflow import ImageRecord
 
-    evil = ImageRecord(file="../../etc/passwd", subject_id="x")
+    evil = ImageRecord(file="../../etc/passwd")
     with pytest.raises(StorageError):
         store.image_path(evil)
 
@@ -286,12 +286,12 @@ def test_nullable_fields_accept_null_but_still_check_values():
     from studyflow.storage import schema_errors
 
     point = {"id": "a" * 32, "title": "t", "notes": "", "done": False, "deadline": None,
-             "effortHours": None, "createdAt": "2026-10-17T00:00:00+00:00"}
+             "effortHours": None, "imageIds": [], "createdAt": "2026-10-17T00:00:00+00:00"}
 
     def errs(**changes):
-        data = {"schemaVersion": 1, "images": [],
+        data = {"schemaVersion": 2, "images": [],
                 "subjects": [{"id": "b" * 32, "name": "s", "notes": "", "createdAt": point["createdAt"],
-                              "points": [dict(point, **changes)]}]}
+                              "imageIds": [], "points": [dict(point, **changes)]}]}
         return schema_errors(data)
 
     assert errs() == []

@@ -61,9 +61,8 @@ def show(db):
             if n:
                 bits.append(f"{n} image")
             print(f"    [{'x' if p.done else ' '}] {p.title}" + (f"  ({', '.join(bits)})" if bits else ""))
-        for img in db.find_images(subject_id=s.id):
-            if img.point_id is None:
-                print(f"    image: {img.original_name}  tags={img.tags}")
+        for img in db.images_of(s.id):
+            print(f"    image: {img.original_name}  tags={img.tags}")
 
 
 def tree(path, labels, depth=0):
@@ -94,20 +93,26 @@ def main(root_arg):
         now = datetime.now(timezone.utc)
         os_ = db.add_subject("Operating Systems", notes="Unit 3 and 4 are important")
         deadlocks = db.add_point(os_.id, "Deadlocks", notes="Coffman conditions", deadline=now + timedelta(days=3, hours=4), effort_hours=2.5)
-        db.add_point(os_.id, "Paging", deadline=now + timedelta(days=9), effort_hours=1.5)
+        paging = db.add_point(os_.id, "Paging", deadline=now + timedelta(days=9), effort_hours=1.5)
         dbms = db.add_subject("DBMS")
         db.add_point(dbms.id, "Normalisation", deadline=now + timedelta(hours=20), effort_hours=3)
         er = db.add_point(dbms.id, "ER diagrams")
         er.done = True
         store.save(db)
-        store.attach_image(db, photo, os_.id, deadlocks.id, tags=["Blackboard", "unit3"])  # photo for one study point
-        store.attach_image(db, photo, dbms.id, tags=["blackboard"])                       # photo for a whole subject
+        board = store.attach_image(db, photo, os_.id, deadlocks.id, tags=["Blackboard", "unit3"])  # photo for one study point
+        store.attach_image(db, photo, dbms.id, tags=["blackboard"])                                # photo for a whole subject
+        store.link_image(db, board.id, os_.id, paging.id)  # the SAME photo, also shown on Paging (no second copy)
         show(db)
 
         section("3. Searching images")
         print("tag 'blackboard':", len(db.find_images(tag="blackboard")), "image(s)")
         print("tag 'UNIT3' (any case):", len(db.find_images(tag="UNIT3")), "image(s)")
         print("attached to 'Deadlocks':", [i.original_name for i in db.find_images(point_id=deadlocks.id)])
+        print(f"the first photo is used in {len(db.usage(board.id))} places (Deadlocks and Paging) but stored only once")
+        print("pictures stored in total:", len(db.images), "| files in the images folder:", len(list(store.images_dir.iterdir())))
+        for query in ("deadlock", "unit3", "normal"):
+            for hit in db.search(query):
+                print(f"search {query!r}: {hit.kind} ({hit.field}): {hit.snippet}")
 
         section("4. JSON Schema check of the saved file")
         problems = schema_errors(json.loads(store.data_file.read_text("utf-8")))
@@ -152,8 +157,14 @@ def main(root_arg):
             print("warning:", w)
         print("recovered subjects:", [s.name for s in db.subjects])
 
-        section("9. What should I study first? (priority engine, 2 study hours per day)")
-        settings = PlanSettings(hours_per_day=2)
+        section("9. What should I study first? (priority engine; settings are saved per user)")
+        settings = store.load_settings()  # the defaults on first run
+        print(f"saved setting: {settings.hours_per_day:g} study hours per day (default)")
+        store.save_settings(PlanSettings(hours_per_day=3))
+        settings = store.load_settings()
+        print(f"after changing it and reloading: {settings.hours_per_day:g} study hours per day")
+        print("other user's setting is separate:", mgr.open_user(guest.id).load_settings().hours_per_day, "h/day")
+        mgr.open_user(me.id)  # make Saurabh the active user again
         for rank, row in enumerate(rank_points(db, settings=settings), start=1):
             start = row.start_by.astimezone().strftime("%a %d %b %H:%M") if row.start_by else "-"
             default = "" if row.effort_estimated else " (default)"

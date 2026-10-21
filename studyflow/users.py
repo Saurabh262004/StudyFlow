@@ -96,6 +96,12 @@ class UserManager:
             json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"),
         )
 
+    def validate_name(self, name: str, ignore_id: Optional[str] = None) -> str:
+        """The cleaned name, or ValueError saying what is wrong (empty, too long, already taken)."""
+        name = self._clean_name(name)
+        self._check_unique(name, ignore_id)
+        return name
+
     def _check_unique(self, name: str, ignore_id: Optional[str] = None) -> None:
         wanted = name.casefold()
         for u in self.list_users():
@@ -115,8 +121,7 @@ class UserManager:
         return self._read_info(self._user_dir(user_id))
 
     def create_user(self, name: str) -> UserInfo:
-        name = self._clean_name(name)
-        self._check_unique(name)
+        name = self.validate_name(name)
         user_id, created = new_id(), utc_now()
         (self.users_dir / user_id).mkdir()
         self._write_info(user_id, name, created)
@@ -124,8 +129,7 @@ class UserManager:
 
     def rename_user(self, user_id: str, new_name: str) -> UserInfo:
         info = self.get_user(user_id)
-        new_name = self._clean_name(new_name)
-        self._check_unique(new_name, ignore_id=user_id)
+        new_name = self.validate_name(new_name, ignore_id=user_id)
         self._write_info(user_id, new_name, info.created_at)
         return UserInfo(id=user_id, name=new_name, created_at=info.created_at)
 
@@ -141,15 +145,24 @@ class UserManager:
             self._write_last_id(None)
 
     # ------------------------------------------------------------------ switching
+    def storage_for(self, user_id: str) -> Storage:
+        """A user's Storage, with no side effects (the user is not remembered as the last one)."""
+        return Storage(self._user_dir(user_id))
+
+    def remember_user(self, user_id: str) -> None:
+        """Make this the user to open automatically next time."""
+        self._user_dir(user_id)  # NotFoundError for unknown ids
+        self._write_last_id(user_id)
+
     def open_user(self, user_id: str) -> Storage:
         """Select a user. Returns that user's Storage; call .load() on it to get their Database.
 
         Switching users in the app is just: save (already done after every action),
         call open_user(other_id), load(), and show the new data.
         """
-        path = self._user_dir(user_id)
-        self._write_last_id(user_id)
-        return Storage(path)
+        store = self.storage_for(user_id)
+        self.remember_user(user_id)
+        return store
 
     def last_user(self) -> Optional[UserInfo]:
         """The user who was active last time, or None (first run, or that user was deleted)."""

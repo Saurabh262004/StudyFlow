@@ -11,6 +11,10 @@ Design rules (the user's notes cannot be regenerated, so data safety comes first
     A save that would write invalid data is refused before the existing file is touched.
   * Database records are saved BEFORE image files are deleted, so a crash leaves a
     stray file at worst, never a record pointing at a missing picture.
+  * settings.json (per-user planning settings) is validated against its own JSON Schema; a damaged one is
+    kept aside and the defaults are used.
+  * Old file layouts are upgraded while loading; a copy of the old file is kept (data.pre-vN.json)
+    before the first save replaces it.
 """
 from __future__ import annotations
 
@@ -23,35 +27,32 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Optional, Union
 
-from jsonschema import Draft202012Validator
-
 from .models import (
+    SCHEMA_VERSION,
     Database,
     DataFormatError,
     ImageRecord,
     NewerSchemaError,
+    upgrade,
 )
+from .priority import PlanSettings
+from .schemas import describe_errors, load_validator
+from .settings import settings_from_dict, settings_to_dict
 
 DATA_FILE = "data.json"
 BACKUP_FILE = "data.json.bak"
+SETTINGS_FILE = "settings.json"
 IMAGE_DIR = "images"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
 
 PathLike = Union[str, os.PathLike]
 
-SCHEMA_FILE = Path(__file__).with_name("studyflow.schema.json")
-_VALIDATOR = Draft202012Validator(json.loads(SCHEMA_FILE.read_text(encoding="utf-8")))
+_VALIDATOR = load_validator("studyflow.schema.json")
 
 
 def schema_errors(data: Any) -> list[str]:
     """Human-readable problems found when checking `data` against the JSON Schema (empty = valid)."""
-    problems = []
-    for err in sorted(_VALIDATOR.iter_errors(data), key=lambda e: list(map(str, e.absolute_path))):
-        where = ""
-        for part in err.absolute_path:
-            where += f"[{part}]" if isinstance(part, int) else f".{part}"
-        problems.append(f"{where.lstrip('.') or '(root)'}: {err.message}")
-    return problems
+    return describe_errors(_VALIDATOR, data)
 
 
 class StorageError(Exception):
@@ -119,6 +120,10 @@ class Storage:
         return self.data_dir / BACKUP_FILE
 
     @property
+    def settings_file(self) -> Path:
+        return self.data_dir / SETTINGS_FILE
+
+    @property
     def images_dir(self) -> Path:
         return self.data_dir / IMAGE_DIR
 
@@ -131,24 +136,36 @@ class Storage:
 
     # ------------------------------------------------------------------ load
     @staticmethod
-    def _read(path: Path) -> Database:
-        """Read one JSON file. Raises ValueError/DataFormatError if it is damaged."""
+    def _read_versioned(path: Path) -> tuple[Database, int]:
+        """Read one JSON file, upgrading old layouts. Returns (database, schema version found in the file).
+        Raises ValueError/DataFormatError if it is damaged or inconsistent."""
         with open(path, "rb") as f:
             raw = json.loads(f.read().decode("utf-8"))
-        db = Database.from_dict(raw)  # raises NewerSchemaError first, so newer files are never judged by this schema
-        # When migrations exist, validate the migrated dict here instead of `raw`.
-        problems = schema_errors(raw)
+        upgraded = upgrade(raw)  # raises NewerSchemaError first, so newer files are never judged by this schema
+        found_version = raw.get("schemaVersion", 1)
+        problems = schema_errors(upgraded)
         if problems:
             shown = "; ".join(problems[:3]) + (f" (+{len(problems) - 3} more)" if len(problems) > 3 else "")
             raise DataFormatError(f"data does not match the schema: {shown}")
-        return db
+        db = Database.from_dict(upgraded)
+        problems = db.integrity_problems()
+        if problems:
+            raise DataFormatError("data is inconsistent: " + "; ".join(problems[:3]))
+        return db, found_version
+
+    @staticmethod
+    def _read(path: Path) -> Database:
+        return Storage._read_versioned(path)[0]
 
     def load(self) -> Database:
         """Load the database. Check `self.warnings` afterwards and show them to the user."""
         self.warnings = []
         try:
             if self.data_file.exists():
-                return self._read(self.data_file)
+                db, found_version = self._read_versioned(self.data_file)
+                if found_version < SCHEMA_VERSION:
+                    self._keep_old_format_copy(found_version)
+                return db
             if not self.backup_file.exists():
                 return Database()  # first run
             db = self._restore_from_backup()
@@ -163,6 +180,17 @@ class Storage:
             raise StorageError(f"Could not read your data: {exc}") from exc
         except ValueError:  # includes JSONDecodeError, UnicodeDecodeError and DataFormatError
             return self._recover_from_corruption()
+
+    def _keep_old_format_copy(self, version: int) -> None:
+        """Before an old-format file is replaced by a save, keep one untouched copy of it."""
+        copy = self.data_dir / f"data.pre-v{version}.json"
+        if copy.exists():
+            return
+        try:
+            shutil.copy2(self.data_file, copy)
+        except OSError:
+            return
+        self.warnings.append(f"Your data was upgraded to the new format. A copy of the old file was kept as {copy.name}.")
 
     def _restore_from_backup(self) -> Optional[Database]:
         try:
@@ -189,11 +217,35 @@ class Storage:
     # ------------------------------------------------------------------ save
     def save(self, db: Database) -> None:
         data = db.to_dict()
-        problems = schema_errors(data)
+        problems = schema_errors(data) + db.integrity_problems()
         if problems:  # a bug or bad value in memory: refuse BEFORE touching the saved file
             raise StorageError("Refusing to save invalid data (your saved file was not changed): " + "; ".join(problems[:3]))
         payload = json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
         atomic_write(self.data_file, payload, backup=self.backup_file)
+
+    # ------------------------------------------------------------------ settings
+    def load_settings(self) -> PlanSettings:
+        """This user's planning settings (defaults if none are saved yet). Call it after load(): problems are
+        added to `self.warnings`. A damaged settings file is kept as settings.corrupt-<time>.json."""
+        path = self.settings_file
+        if not path.exists():
+            return PlanSettings()
+        try:
+            return settings_from_dict(json.loads(path.read_bytes().decode("utf-8")))
+        except OSError as exc:
+            self.warnings.append(f"Could not read your settings ({exc}); using the defaults.")
+        except ValueError as exc:  # bad JSON, wrong shape, or a value outside its allowed range
+            kept = self.data_dir / f"settings.corrupt-{_stamp()}.json"
+            try:
+                os.replace(path, kept)
+                self.warnings.append(f"Your settings file was damaged ({exc}); using the defaults. A copy was kept as {kept.name}.")
+            except OSError:
+                self.warnings.append("Your settings file was damaged; using the defaults.")
+        return PlanSettings()
+
+    def save_settings(self, settings: PlanSettings) -> None:
+        payload = json.dumps(settings_to_dict(settings), indent=2, allow_nan=False).encode("utf-8")
+        atomic_write(self.settings_file, payload)
 
     # ------------------------------------------------------------------ images
     def attach_image(
@@ -204,18 +256,17 @@ class Storage:
         point_id: Optional[str] = None,
         tags: Iterable[str] = (),
     ) -> ImageRecord:
-        """Copy a picture into the data folder, add its record to `db` and save."""
+        """Import a picture: copy it into the data folder, add its record, show it on the subject
+        (or study point) and save. To show the same picture somewhere else use link_image()."""
         source = Path(source)
         if not source.is_file():
             raise StorageError(f"File not found: {source}")
         ext = source.suffix.lower()
         if ext not in IMAGE_EXTENSIONS:
             raise StorageError(f"Unsupported image type {ext or '(none)'}. Use one of: {', '.join(sorted(IMAGE_EXTENSIONS))}")
-        db.get_subject(subject_id)  # raises NotFoundError for bad ids
-        if point_id is not None:
-            db.get_point(subject_id, point_id)
+        db._target(subject_id, point_id)  # raises NotFoundError for bad ids
 
-        record = ImageRecord(file="", subject_id=subject_id, point_id=point_id, tags=list(tags), original_name=source.name)
+        record = ImageRecord(file="", tags=list(tags), original_name=source.name)
         record.file = f"{IMAGE_DIR}/{record.id}{ext}"
         dest = self.image_path(record)
         try:
@@ -225,17 +276,32 @@ class Storage:
             raise StorageError(f"Could not copy the image: {exc}") from exc
 
         db.images.append(record)
+        db.link_image(record.id, subject_id, point_id)
         try:
             self.save(db)
         except Exception:
-            db.images.remove(record)
+            db.remove_image(record.id)
             dest.unlink(missing_ok=True)
             raise
         return record
 
+    def link_image(self, db: Database, image_id: str, subject_id: str, point_id: Optional[str] = None) -> None:
+        """Show an already imported picture on another subject or study point (no copy is made) and save."""
+        db.link_image(image_id, subject_id, point_id)
+        self.save(db)
+
+    def unlink_image(self, db: Database, image_id: str, subject_id: str, point_id: Optional[str] = None) -> bool:
+        """Stop showing a picture there and save. If nothing else uses it, the picture is deleted
+        (record and file) and True is returned, so the UI can warn before removing the last use."""
+        removed = db.unlink_image(image_id, subject_id, point_id)
+        self.save(db)
+        if removed is not None:
+            self._delete_files([removed])
+        return removed is not None
+
     def delete_image(self, db: Database, image_id: str) -> None:
-        record = db.get_image(image_id)
-        db.images.remove(record)
+        """Delete a picture everywhere it is used."""
+        record = db.remove_image(image_id)
         self.save(db)
         self._delete_files([record])
 
@@ -267,6 +333,8 @@ class Storage:
         try:
             with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.write(self.data_file, DATA_FILE)
+                if self.settings_file.is_file():
+                    zf.write(self.settings_file, SETTINGS_FILE)
                 if self.images_dir.is_dir():
                     for file in sorted(self.images_dir.iterdir()):
                         if file.is_file():
@@ -295,7 +363,7 @@ class Storage:
                     "\\" not in name
                     and not posix.is_absolute()
                     and ".." not in posix.parts
-                    and (name == DATA_FILE or posix.parts[0] == IMAGE_DIR)
+                    and (name in (DATA_FILE, SETTINGS_FILE) or posix.parts[0] == IMAGE_DIR)
                 )
                 if not safe:
                     raise StorageError(f"The backup contains an unexpected entry: {name!r}")
@@ -308,6 +376,13 @@ class Storage:
                     raise StorageError(f"{exc}. Please update StudyFlow.") from exc
                 except ValueError as exc:
                     raise StorageError(f"The backup's data is damaged: {exc}") from exc
+
+                restored_settings = None  # a bad settings file inside a backup must never block restoring the data
+                if (Path(tmp) / SETTINGS_FILE).is_file():
+                    try:
+                        restored_settings = settings_from_dict(json.loads((Path(tmp) / SETTINGS_FILE).read_text("utf-8")))
+                    except (OSError, ValueError):
+                        restored_settings = None
 
                 if self.data_file.exists():
                     self.export_backup(self.data_dir / f"pre-restore-{_stamp()}.zip")
@@ -323,4 +398,6 @@ class Storage:
                 except OSError as exc:
                     raise StorageError(f"Could not replace the images folder: {exc}") from exc
         self.save(db)
+        if restored_settings is not None:
+            self.save_settings(restored_settings)
         return db
