@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -60,8 +61,7 @@ class SubjectPage(QWidget):
 
         # ---- notes
         self.notes = NotesEdit()
-        self.notes.setPlaceholderText("Notes for this subject\u2026")
-        self.notes.setFixedHeight(58)
+        self.notes.setPlaceholderText("Write notes for this subject\u2026")
 
         # ---- points
         self.model = PointsModel(controller, self)
@@ -79,22 +79,23 @@ class SubjectPage(QWidget):
         splitter.addWidget(points_box)
         splitter.addWidget(self.editor)
         splitter.setStretchFactor(0, 5)
-        splitter.setStretchFactor(1, 2)
+        splitter.setStretchFactor(1, 4)
         splitter.setChildrenCollapsible(False)
+        splitter.setSizes([250, 230])
+        splitter.setHandleWidth(10)
+
+        # Two tabs ("Images" joins them later) so that the points table and the editor get the whole height
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.addTab(splitter, "Study points")
+        self.tabs.addTab(self.notes, "Notes")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 18, 28, 14)
         layout.setSpacing(6)
         layout.addLayout(header)
         layout.addWidget(self.summary)
-        notes_label = QLabel("NOTES")
-        notes_label.setObjectName("sectionLabel")
-        points_label = QLabel("STUDY POINTS")
-        points_label.setObjectName("sectionLabel")
-        layout.addWidget(notes_label)
-        layout.addWidget(self.notes)
-        layout.addWidget(points_label)
-        layout.addWidget(splitter, 1)
+        layout.addWidget(self.tabs, 1)
 
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -175,11 +176,15 @@ class SubjectPage(QWidget):
             self._notes_dirty = False
 
     def _set_notes_text(self, text: str) -> None:
-        if self.notes.toPlainText() == text:
-            return
-        self._loading_notes = True
-        self.notes.setPlainText(text)
-        self._loading_notes = False
+        if self.notes.toPlainText() != text:
+            self._loading_notes = True
+            self.notes.setPlainText(text)
+            self._loading_notes = False
+        self._update_notes_tab()
+
+    def _update_notes_tab(self) -> None:
+        """A dot on the "Notes" tab when the subject has notes, so notes in a hidden tab are still discoverable."""
+        self.tabs.setTabText(1, "Notes \u2022" if self.notes.toPlainText().strip() else "Notes")
 
     def _reload_editor(self, force: bool) -> None:
         if self._point_id is None:
@@ -194,6 +199,14 @@ class SubjectPage(QWidget):
             self.editor.load(None)
             return
         self.editor.load(point)
+
+    def select_point(self, point_id: str) -> None:
+        """Show the "Study points" tab with this point selected and its editor open."""
+        self.tabs.setCurrentIndex(0)
+        row = self.model.row_of(point_id)
+        if row >= 0:
+            self.table.selectRow(row)
+            self.table.scrollTo(self.model.index(row, 0))
 
     # ------------------------------------------------------------------ selection
     def _on_selection_changed(self, _selected, _deselected) -> None:
@@ -223,6 +236,7 @@ class SubjectPage(QWidget):
         util.show_error(self, message)
 
     def _on_notes_changed(self) -> None:
+        self._update_notes_tab()
         if self._loading_notes:
             return
         self._notes_dirty = True

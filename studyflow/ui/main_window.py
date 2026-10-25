@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -31,10 +31,18 @@ from . import util
 from .controller import AppController, NoUserOpenError
 from .dialogs.name_dialog import NameDialog
 from .dialogs.user_picker import UserPickerDialog
+from .pages.dashboard_page import DashboardPage
 from .pages.subject_page import SubjectPage
 from .startup import choose_user
 
 PAGE_DASHBOARD, PAGE_IMAGES, PAGE_SUBJECT = 0, 1, 2
+
+
+def default_window_size(screen_width: int, screen_height: int) -> tuple[int, int]:
+    """About 80% of the screen, but never smaller than 1120x720 unless the screen itself is smaller."""
+    width = min(screen_width, max(1120, int(screen_width * 0.78)))
+    height = min(screen_height, max(720, int(screen_height * 0.88)))
+    return width, height
 
 
 class PlaceholderPage(QWidget):
@@ -87,7 +95,12 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.controller = controller
         self.setMinimumSize(880, 560)
-        self.resize(1120, 720)
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:
+            area = screen.availableGeometry()
+            self.resize(*default_window_size(area.width(), area.height()))
+        else:
+            self.resize(1120, 720)
         self._build_menu()
         self._build_toolbar()
         self._build_central()
@@ -158,7 +171,8 @@ class MainWindow(QMainWindow):
         side.addLayout(holder)
 
         self.pages = QStackedWidget()
-        self.dashboard_page = PlaceholderPage("Dashboard")
+        self.dashboard_page = DashboardPage(self.controller)
+        self.dashboard_page.openPointRequested.connect(self.open_point)
         self.images_page = PlaceholderPage("Images", "Your picture gallery will appear here.")
         self.subject_page = SubjectPage(self.controller)
         for page in (self.dashboard_page, self.images_page, self.subject_page):
@@ -213,17 +227,6 @@ class MainWindow(QMainWindow):
             self._select_subject_row(row)
         elif self.nav.currentRow() < 0 or keep is not None:
             self.nav.setCurrentRow(0)
-        self._refresh_pages()
-
-    def _refresh_pages(self) -> None:
-        if not self.controller.is_open:
-            return
-        subjects = self.controller.subjects()
-        points = sum(1 for s in subjects for p in s.points if not p.done)
-        self.dashboard_page.set_text(
-            "Dashboard",
-            f"Your priority list will appear here.\n\nYou have {len(subjects)} subject(s) and {points} unfinished study point(s).",
-        )
 
     def _selected_subject_id(self) -> Optional[str]:
         item = self.subject_list.currentItem()
@@ -264,6 +267,14 @@ class MainWindow(QMainWindow):
     def switch_user(self) -> None:
         self.subject_page.flush()  # edits belong to the CURRENT user: save them before anyone else is opened
         UserPickerDialog(self.controller, parent=self).exec()
+
+    def open_point(self, subject_id: str, point_id: str) -> None:
+        """Jump to a study point: show its subject and select the point in the table (used by the dashboard)."""
+        for row in range(self.subject_list.count()):
+            if self.subject_list.item(row).data(Qt.ItemDataRole.UserRole) == subject_id:
+                self.subject_list.setCurrentRow(row)  # shows the subject (and first saves edits on the one we leave)
+                self.subject_page.select_point(point_id)
+                return
 
     def add_subject(self) -> None:
         name = NameDialog.ask(self, "New subject", "Name of the subject:", lambda _t: None, ok_text="Add")

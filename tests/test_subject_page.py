@@ -592,3 +592,59 @@ def test_the_window_does_not_reannounce_the_selection_when_the_list_is_rebuilt(q
     ctrl.add_subject("Another")  # rebuilds the sidebar list
     ctrl.rename_subject(world[0].id, "OS renamed")
     assert seen == []
+
+
+# ================================================================== layout: room for everything at 1120x720
+def test_subject_notes_have_their_own_tab_with_a_dot_when_not_empty(qapp, ctrl, world):
+    page = SubjectPage(ctrl)
+    page.show_subject(world[0].id)
+    assert [page.tabs.tabText(i) for i in range(2)] == ["Study points", "Notes \u2022"]
+    page.notes.setPlainText("")
+    assert page.tabs.tabText(1) == "Notes"
+    page.notes.setPlainText("typed")
+    assert page.tabs.tabText(1) == "Notes \u2022"
+    empty = ctrl.add_subject("Empty")
+    page.show_subject(empty.id)
+    assert page.tabs.tabText(1) == "Notes"
+
+
+def test_the_tab_choice_is_kept_when_another_subject_is_shown(qapp, ctrl, world):
+    page = SubjectPage(ctrl)
+    page.show_subject(world[0].id)
+    page.tabs.setCurrentIndex(1)
+    other = ctrl.add_subject("Other", notes="its notes")
+    page.show_subject(other.id)
+    assert page.tabs.currentIndex() == 1 and page.notes.toPlainText() == "its notes"
+
+
+def test_select_point_shows_the_points_tab_and_the_editor(qapp, page, world):
+    s, a, b, *_ = world
+    page.tabs.setCurrentIndex(1)
+    page.select_point(b.id)
+    assert page.tabs.currentIndex() == 0 and page.editor.title_edit.text() == "Scheduling"
+    assert [i.row() for i in page.table.selectionModel().selectedRows()] == [1]
+    page.select_point("no-such-point")  # ignored
+    assert page.editor.title_edit.text() == "Scheduling"
+
+
+@pytest.mark.parametrize(
+    "screen, expected",
+    [((1366, 728), (1120, 720)), ((1920, 1040), (1497, 915)), ((2560, 1400), (1996, 1232)), ((800, 600), (800, 600)), ((1024, 700), (1024, 700))],
+)
+def test_default_window_size_follows_the_screen(screen, expected):
+    assert mw_module.default_window_size(*screen) == expected
+
+
+def test_everything_has_room_at_1120_by_720(qapp, ctrl, world):
+    """The reported problem: the point's notes box showed only ~2 lines. Now it has room, and the table
+    shows the five rows of the sample subject."""
+    w = MainWindow(ctrl)
+    w.resize(1120, 720)
+    w.show()
+    w.subject_list.setCurrentRow(0)
+    w.subject_page.table.selectRow(0)
+    qapp.processEvents()
+    page = w.subject_page
+    assert page.editor.notes.height() >= 80  # at least four lines of text
+    assert page.table.viewport().height() >= 4 * 32  # the sample's four points are all visible without scrolling
+    assert page.editor.title_edit.isVisible() and page.editor.delete_button.isVisible()

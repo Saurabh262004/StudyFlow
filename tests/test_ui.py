@@ -247,7 +247,7 @@ def test_main_window_shows_the_open_user_and_their_subjects(qapp, ctrl):
     assert w.windowTitle() == "Saurabh \u2014 StudyFlow" and "Saurabh" in w.user_button.text()
     assert subject_names(w) == ["DBMS", "Maths", "operating systems"]  # sorted ignoring case
     assert w.pages.currentIndex() == PAGE_DASHBOARD and w.nav.currentRow() == 0
-    assert "3 subject(s)" in w.dashboard_page.body.text()
+    assert "3 subject(s)" in w.dashboard_page.summary.text()
     assert w.switch_action.shortcut() == QKeySequence("Ctrl+U")
 
 
@@ -259,7 +259,7 @@ def test_sidebar_follows_the_controller(qapp, ctrl):
     ctrl.rename_subject(s.id, "Mathematics")
     assert subject_names(w) == ["Mathematics"]
     ctrl.add_point(s.id, "Algebra")
-    assert "1 unfinished" in w.dashboard_page.body.text()
+    assert "1 unfinished" in w.dashboard_page.summary.text()
 
 
 def test_selecting_subjects_and_navigation(qapp, ctrl):

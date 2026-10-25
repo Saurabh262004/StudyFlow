@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...models import StudyPoint
+from .. import style
 from .notes_edit import NotesEdit
 
 MAX_EFFORT = 500.0
@@ -52,16 +53,18 @@ class PointEditor(QGroupBox):
         self.deadline = QDateTimeEdit()
         self.deadline.setCalendarPopup(True)
         self.deadline.setDisplayFormat("dd MMM yyyy  HH:mm")
+        style.plain_calendar(self.deadline)
         self.has_effort = QCheckBox("Effort")
         self.effort = QDoubleSpinBox()
         self.effort.setRange(0.25, MAX_EFFORT)
         self.effort.setSingleStep(0.25)
         self.effort.setDecimals(2)
         self.effort.setSuffix(" h")
+        style.pad_spin_box(self.effort)
         self.done = QCheckBox("Done")
         self.notes = NotesEdit()
         self.notes.setPlaceholderText("Notes for this study point\u2026")
-        self.notes.setMinimumHeight(44)
+        self.notes.setMinimumHeight(66)
         self.error = QLabel("")
         self.error.setObjectName("errorText")
         self.delete_button = QPushButton("Delete point")
