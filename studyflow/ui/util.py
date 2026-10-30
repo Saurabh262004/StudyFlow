@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtWidgets import QCheckBox, QFileDialog, QMessageBox, QWidget
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QCheckBox, QFileDialog, QMenu, QMessageBox, QWidget
 
 
 def show_error(parent: Optional[QWidget], message: str) -> None:
@@ -44,3 +45,13 @@ def confirm(
 def ask_save_path(parent: Optional[QWidget], title: str, default_name: str, file_filter: str = "Zip files (*.zip)") -> Optional[Path]:
     path, _ = QFileDialog.getSaveFileName(parent, title, default_name, file_filter)
     return Path(path) if path else None
+
+
+def ask_open_files(parent: Optional[QWidget], title: str, file_filter: str) -> list[Path]:
+    paths, _ = QFileDialog.getOpenFileNames(parent, title, "", file_filter)
+    return [Path(p) for p in paths]
+
+
+def exec_menu(menu: QMenu, global_position) -> Optional[QAction]:
+    """Show a pop-up menu and return the chosen action (None if dismissed). Wrapped so tests can answer it."""
+    return menu.exec(global_position)

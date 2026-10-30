@@ -369,6 +369,28 @@ class AppController(QObject):
         self._ensure_open()
         return self.store.image_path(record)
 
+    def get_image(self, image_id: str) -> ImageRecord:
+        self._ensure_open()
+        return self.db.get_image(image_id)
+
+    def tag_counts(self) -> dict[str, int]:
+        """Every tag used on any picture, with how many pictures carry it, sorted by name."""
+        self._ensure_open()
+        counts: dict[str, int] = {}
+        for image in self.db.images:
+            for tag in image.tags:
+                counts[tag] = counts.get(tag, 0) + 1
+        return dict(sorted(counts.items()))
+
+    def describe_usage(self, image_id: str) -> list[str]:
+        """Where a picture is shown, in words: "Operating Systems" or "Operating Systems \u203a Deadlocks"."""
+        self._ensure_open()
+        places = []
+        for subject_id, point_id in self.db.usage(image_id):
+            subject = self.db.get_subject(subject_id)
+            places.append(subject.name if point_id is None else f"{subject.name} \u203a {self.db.get_point(subject_id, point_id).title}")
+        return places
+
     def search(self, text: str, subject_id: Optional[str] = None, limit: Optional[int] = None) -> list[SearchHit]:
         self._ensure_open()
         return self.db.search(text, subject_id=subject_id, limit=limit)

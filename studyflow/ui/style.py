@@ -45,7 +45,7 @@ class Colors:
 
 LIGHT = Colors(
     window="#f6f7f9", surface="#ffffff", sidebar="#eceef3", text="#1f2430", muted="#5c667a",
-    accent="#3b6df0", accent_text="#ffffff", border="#d9dde6", control_border="#8089a0", hover="#dde3f0",
+    accent="#2f60e2", accent_text="#ffffff", border="#d9dde6", control_border="#8089a0", hover="#dde3f0",
     disabled_text="#7f879b",
     banner_bg="#fff4d6", banner_border="#f0d48a", banner_text="#5a4300", danger="#c0392b",
 )
@@ -171,6 +171,11 @@ QMenu::item:disabled { color: @disabled_text@; background: transparent; }
 QMenu::separator { height: 1px; background: @border@; margin: 4px 8px; }
 QToolTip { background: @surface@; color: @text@; border: 1px solid @control_border@; padding: 4px 6px; }
 
+/* ---- plain list views (also the pop-up of auto-complete); more specific rules below override this */
+QListView { background: @surface@; color: @text@; border: 1px solid @control_border@; outline: 0; selection-background-color: @accent@; selection-color: @accent_text@; }
+QListView::item:hover { background: @hover@; color: @text@; }
+QListView::item:selected { background: @accent@; color: @accent_text@; }
+
 /* ---- sidebar */
 #sidebar { background: @sidebar@; border-right: 1px solid @border@; }
 #sidebarHeading { color: @muted@; font-size: 9pt; font-weight: 600; padding: 10px 14px 4px 14px; }
@@ -270,6 +275,21 @@ QTableView { background: @surface@; color: @text@; border: 1px solid @border@; b
              selection-background-color: @accent@; selection-color: @accent_text@; }
 QTableView::item { padding: 4px 8px; }
 QHeaderView::section { background: @surface@; color: @muted@; border: none; border-bottom: 1px solid @border@; padding: 6px 8px; font-weight: 600; }
+
+/* ---- tree (the "pick a subject or study point" dialog) */
+QTreeView { background: @surface@; color: @text@; border: 1px solid @control_border@; border-radius: 8px; outline: 0; selection-background-color: @accent@; selection-color: @accent_text@; }
+QTreeView::item { padding: 6px 4px; background: transparent; color: @text@; }
+QTreeView::item:hover { background: @hover@; color: @text@; }
+QTreeView::item:selected { background: @accent@; color: @accent_text@; }
+QTreeView::item:disabled { background: transparent; color: @disabled_text@; }
+
+/* ---- pictures: thumbnails and the strip that accepts dropped files */
+QListView#imageView { background: transparent; color: @text@; border: none; outline: 0; }
+QListView#imageView::item { padding: 6px; border-radius: 8px; background: transparent; color: @text@; }
+QListView#imageView::item:hover { background: @hover@; color: @text@; }
+QListView#imageView::item:selected { background: @accent@; color: @accent_text@; }
+QFrame#imageStrip { border: 2px dashed transparent; border-radius: 10px; background: transparent; }
+QFrame#imageStrip[dropActive="true"] { border: 2px dashed @accent@; background: @hover@; }
 
 /* ---- group boxes, tabs, splitters */
 QGroupBox { background: @surface@; color: @text@; border: 1px solid @border@; border-radius: 8px; margin-top: 10px; padding: 8px 0 0 0; }

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -29,6 +29,7 @@ from ...storage import StorageError
 from .. import util
 from ..controller import AppController, NoUserOpenError
 from ..dialogs.name_dialog import NameDialog
+from ..widgets.image_strip import ImageStrip
 from ..widgets.notes_edit import NotesEdit
 from ..widgets.point_editor import PointEditor
 from ..widgets.points_table import PointsModel, PointsTable
@@ -37,6 +38,8 @@ SAVE_DELAY_MS = 700
 
 
 class SubjectPage(QWidget):
+    locationRequested = Signal(str, str)  # a picture's viewer asked to go to (subject id, point id or "")
+
     def __init__(self, controller: AppController, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.controller = controller
@@ -74,7 +77,9 @@ class SubjectPage(QWidget):
         points_layout.setSpacing(8)
         points_layout.addWidget(self.table, 1)
         points_layout.addWidget(self.quick_add)
-        self.editor = PointEditor()
+        self.point_images = ImageStrip(controller, row=True)
+        self.editor = PointEditor(images_widget=self.point_images)
+        self.subject_images = ImageStrip(controller, row=False)
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(points_box)
         splitter.addWidget(self.editor)
@@ -89,6 +94,7 @@ class SubjectPage(QWidget):
         self.tabs.setDocumentMode(True)
         self.tabs.addTab(splitter, "Study points")
         self.tabs.addTab(self.notes, "Notes")
+        self.tabs.addTab(self.subject_images, "Pictures")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 18, 28, 14)
@@ -109,6 +115,10 @@ class SubjectPage(QWidget):
         self.editor.finishedEditing.connect(self.flush)
         self.editor.edited.connect(self._save_timer.start)
         self.editor.deleteRequested.connect(self.delete_point)
+        self.point_images.countChanged.connect(self.editor.set_pictures_count)
+        self.subject_images.countChanged.connect(self._on_subject_pictures_count)
+        self.subject_images.locationRequested.connect(self.locationRequested)
+        self.point_images.locationRequested.connect(self.locationRequested)
         self.table.deleteRequested.connect(self.delete_point)
         self.table.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self.quick_add.returnPressed.connect(self.add_point)
@@ -128,6 +138,8 @@ class SubjectPage(QWidget):
         self.quick_add.clear()
         self._load_header_and_notes(force=True)
         self.editor.load(None)
+        self.subject_images.set_target(subject_id)
+        self.point_images.set_target(None)
 
     def clear(self) -> None:
         """Show nothing. Pending edits are DISCARDED (call flush() first if they should be kept)."""
@@ -141,6 +153,8 @@ class SubjectPage(QWidget):
         self.title.setText("")
         self.summary.setText("")
         self._set_notes_text("")
+        self.subject_images.set_target(None)
+        self.point_images.set_target(None)
 
     def refresh(self) -> None:
         """The data changed (anywhere): bring the page in line, without disturbing what the user is typing."""
@@ -186,7 +200,16 @@ class SubjectPage(QWidget):
         """A dot on the "Notes" tab when the subject has notes, so notes in a hidden tab are still discoverable."""
         self.tabs.setTabText(1, "Notes \u2022" if self.notes.toPlainText().strip() else "Notes")
 
+    def _on_subject_pictures_count(self, count: int) -> None:
+        self.tabs.setTabText(2, f"Pictures ({count})" if count else "Pictures")
+
+    def show_pictures_tab(self) -> None:
+        self.tabs.setCurrentIndex(2)
+
     def _reload_editor(self, force: bool) -> None:
+        if self._subject_id is not None:
+            # follows the selected point; with no point selected it has NO target (not the subject's pictures)
+            self.point_images.set_target(None if self._point_id is None else self._subject_id, self._point_id)
         if self._point_id is None:
             self.editor.load(None)
             return

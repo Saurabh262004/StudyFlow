@@ -1,4 +1,7 @@
 platformdirs>=4.0
 jsonschema>=4.18
-pytest>=8.0
 PySide6>=6.6
+# for the tests
+pytest>=8.0
+pytest-timeout>=2.2
+pillow>=10.0

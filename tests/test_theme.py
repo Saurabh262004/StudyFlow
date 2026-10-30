@@ -442,6 +442,14 @@ def app_with_data(qapp, theme, tmp_path):
     c.set_point_done(os_.id, done.id, True)
     c.add_point(db.id, "ER diagrams")
     c.warnings = ["Your data file was damaged. A copy was kept."]
+    from studyflow.ui import image_import
+    from tests.pictures_support import make_picture
+
+    folder = tmp_path / "photos"
+    folder.mkdir()
+    pictures = [make_picture(folder / f"IMG_{i}.jpg", 640, 480 - 60 * i, color) for i, color in enumerate(["#aa3333", "#33aa33", "#3333aa"])]
+    image_import.import_pictures(c, None, pictures[:2], os_.id, late.id, tags=["blackboard", "unit 3"])
+    image_import.import_pictures(c, None, pictures[2:], os_.id, None, tags=["slides"])
     return c, os_, late
 
 
@@ -461,6 +469,13 @@ def test_audit_of_the_main_window_pages(app_with_data, qapp):
     w.subject_page.tabs.setCurrentIndex(1)
     qapp.processEvents()
     assert audit(w, qapp) == [], "subject notes tab"
+    w.subject_page.tabs.setCurrentIndex(2)
+    qapp.processEvents()
+    assert audit(w, qapp) == [], "subject Pictures tab"
+    w.subject_page.tabs.setCurrentIndex(0)
+    w.subject_page.editor.tabs.setCurrentIndex(1)
+    qapp.processEvents()
+    assert audit(w, qapp) == [], "point editor Pictures tab"
     w.nav.setCurrentRow(1)
     qapp.processEvents()
     assert audit(w, qapp) == [], "images page"
@@ -540,3 +555,87 @@ def test_every_theme_applies_without_errors_when_switching_repeatedly(qapp):
         qapp.processEvents()
         assert not w.grab().isNull()
         w.close()
+
+
+# ================================================================== picture screens
+@pytest.mark.parametrize("state", list(STATES))
+def test_picture_captions_are_legible_in_every_state(app_with_data, qapp, theme, state):
+    from studyflow.ui.pages.gallery_page import GalleryPage
+
+    c, *_ = app_with_data
+    page = GalleryPage(c)
+    page.resize(900, 520)
+    page.show()
+    view = page.view
+    view.setItemDelegate(StateProbe(view))
+    flags, background = STATES[state]
+    StateProbe.flags = flags
+    view.viewport().update()
+    qapp.processEvents()
+    rect = view.visualRect(view.model().index(0))
+    top_left = view.viewport().mapTo(page, rect.topLeft())
+    picture = page.grab().toImage()
+    caption = picture.copy(QRect(top_left.x() + 4, top_left.y() + rect.height() - 24, rect.width() - 8, 20))
+    assert legibility(caption) >= 4.5, f"{state}: caption not readable ({legibility(caption):.2f})"
+    expected = {"surface": theme.window}.get(background, getattr(theme, background))  # a normal item shows the page behind it
+    assert colours(caption).most_common(1)[0][0] == rgb(expected), f"{state}: wrong background"
+
+
+@pytest.mark.parametrize("state", list(STATES))
+def test_tree_picker_rows_are_legible_in_every_state(app_with_data, qapp, theme, state):
+    from studyflow.ui.dialogs.target_picker import TargetPickerDialog
+
+    c, os_, late = app_with_data
+    dialog = TargetPickerDialog(c, "Also show in", "Show it in:", {(os_.id, late.id)})
+    dialog.show()
+    tree = dialog.tree
+    tree.setItemDelegate(StateProbe(tree))
+    flags, background = STATES[state]
+    StateProbe.flags = flags
+    tree.viewport().update()
+    qapp.processEvents()
+    item = tree.topLevelItem(0)
+    rect = tree.visualItemRect(item)
+    picture = tree.viewport().grab().toImage()
+    row = picture.copy(rect.intersected(picture.rect()))
+    assert legibility(row) >= 4.5, f"{state}: row not readable"
+    assert colours(row).most_common(1)[0][0] == rgb(getattr(theme, background)), f"{state}: wrong background"
+
+
+def test_taken_places_in_the_tree_picker_are_dimmed_but_readable(app_with_data, qapp, theme):
+    from studyflow.ui.dialogs.target_picker import TargetPickerDialog
+
+    c, os_, late = app_with_data
+    dialog = TargetPickerDialog(c, "Also show in", "Show it in:", {(os_.id, late.id)})
+    dialog.resize(420, 420)
+    dialog.show()
+    qapp.processEvents()
+    top = [dialog.tree.topLevelItem(i) for i in range(dialog.tree.topLevelItemCount())]
+    taken = next(child for item in top for child in (item.child(i) for i in range(item.childCount())) if "already here" in child.text(0))
+    normal = next(child for item in top for child in (item.child(i) for i in range(item.childCount())) if "already here" not in child.text(0))
+    picture = dialog.tree.viewport().grab().toImage()
+    taken_row = picture.copy(dialog.tree.visualItemRect(taken).intersected(picture.rect()))
+    normal_row = picture.copy(dialog.tree.visualItemRect(normal).intersected(picture.rect()))
+    assert 3 <= legibility(taken_row) < legibility(normal_row)
+
+
+def test_audit_of_the_picture_dialogs(app_with_data, qapp):
+    from studyflow.ui.dialogs.image_picker import ImagePickerDialog
+    from studyflow.ui.dialogs.image_viewer import ImageViewerDialog
+    from studyflow.ui.dialogs.tags_dialog import TagsDialog
+    from studyflow.ui.dialogs.target_picker import TargetPickerDialog
+
+    c, os_, late = app_with_data
+    ids = [i.id for i in c.all_images()]
+    dialogs = {
+        "tags": TagsDialog("Add pictures", "Tags for these 3 pictures (optional):", ["blackboard", "slides"], ok_text="Add"),
+        "target": TargetPickerDialog(c, "Also show in", "Show it in:", {(os_.id, late.id)}, ok_text="Show there"),
+        "picker": ImagePickerDialog(c, exclude_ids=set(ids[:1])),
+        "viewer": ImageViewerDialog(c, ids, 1, os_.id, late.id),
+    }
+    for name, dialog in dialogs.items():
+        dialog.resize(900, 600)
+        dialog.show()
+        qapp.processEvents()
+        assert audit(dialog, qapp) == [], name
+        dialog.close()

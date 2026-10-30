@@ -32,6 +32,7 @@ from .controller import AppController, NoUserOpenError
 from .dialogs.name_dialog import NameDialog
 from .dialogs.user_picker import UserPickerDialog
 from .pages.dashboard_page import DashboardPage
+from .pages.gallery_page import GalleryPage
 from .pages.subject_page import SubjectPage
 from .startup import choose_user
 
@@ -173,8 +174,10 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.dashboard_page = DashboardPage(self.controller)
         self.dashboard_page.openPointRequested.connect(self.open_point)
-        self.images_page = PlaceholderPage("Images", "Your picture gallery will appear here.")
+        self.images_page = GalleryPage(self.controller)
+        self.images_page.openLocationRequested.connect(self.open_location)
         self.subject_page = SubjectPage(self.controller)
+        self.subject_page.locationRequested.connect(self.open_location)
         for page in (self.dashboard_page, self.images_page, self.subject_page):
             self.pages.addWidget(page)
 
@@ -274,6 +277,17 @@ class MainWindow(QMainWindow):
             if self.subject_list.item(row).data(Qt.ItemDataRole.UserRole) == subject_id:
                 self.subject_list.setCurrentRow(row)  # shows the subject (and first saves edits on the one we leave)
                 self.subject_page.select_point(point_id)
+                return
+
+    def open_location(self, subject_id: str, point_id: str = "") -> None:
+        """Go to a subject (its Pictures tab) or, with a point id, to that study point."""
+        if point_id:
+            self.open_point(subject_id, point_id)
+            return
+        for row in range(self.subject_list.count()):
+            if self.subject_list.item(row).data(Qt.ItemDataRole.UserRole) == subject_id:
+                self.subject_list.setCurrentRow(row)
+                self.subject_page.show_pictures_tab()
                 return
 
     def add_subject(self) -> None:

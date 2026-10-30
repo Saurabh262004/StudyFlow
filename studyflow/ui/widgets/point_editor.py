@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QTabWidget,
     QWidget,
 )
 
@@ -43,7 +44,7 @@ class PointEditor(QGroupBox):
     deleteRequested = Signal()
     finishedEditing = Signal()  # focus left the notes box (a good moment to save)
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: Optional[QWidget] = None, images_widget: Optional[QWidget] = None) -> None:
         super().__init__("Study point", parent)
         self._loading = False
         self._dirty: set[str] = set()
@@ -64,7 +65,7 @@ class PointEditor(QGroupBox):
         self.done = QCheckBox("Done")
         self.notes = NotesEdit()
         self.notes.setPlaceholderText("Notes for this study point\u2026")
-        self.notes.setMinimumHeight(66)
+        self.notes.setMinimumHeight(60)
         self.error = QLabel("")
         self.error.setObjectName("errorText")
         self.delete_button = QPushButton("Delete point")
@@ -82,8 +83,14 @@ class PointEditor(QGroupBox):
         grid.addWidget(self.effort, 1, 3)
         grid.addWidget(self.done, 1, 4)
         grid.addWidget(self.error, 1, 5)
-        grid.addWidget(QLabel("Notes"), 2, 0, Qt.AlignmentFlag.AlignTop)
-        grid.addWidget(self.notes, 2, 1, 1, 5)
+        # notes and pictures share the space below the fields, as two tabs
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.addTab(self.notes, "Notes")
+        self.images_widget = images_widget
+        if images_widget is not None:
+            self.tabs.addTab(images_widget, "Pictures")
+        grid.addWidget(self.tabs, 2, 0, 1, 6)
         grid.setColumnStretch(1, 1)
         grid.setRowStretch(2, 1)
 
@@ -97,6 +104,11 @@ class PointEditor(QGroupBox):
         self.notes.editingFinished.connect(self.finishedEditing)
         self.delete_button.clicked.connect(self.deleteRequested)
         self.load(None)
+
+    def set_pictures_count(self, count: int) -> None:
+        """Show how many pictures the point has on the tab, so they are noticed even when the tab is not open."""
+        if self.images_widget is not None:
+            self.tabs.setTabText(1, f"Pictures ({count})" if count else "Pictures")
 
     # ------------------------------------------------------------------ user edits (bound methods, no lambdas)
     def _touch(self, field: str) -> None:
